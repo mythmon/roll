@@ -7,3 +7,4 @@ authors = ["Mike Cooper <mythmon@gmail.com>"]
 rand = "*"
 quickcheck = "*"
 quickcheck_macros = "*"
+regex = "*"

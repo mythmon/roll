@@ -3,6 +3,7 @@
 
 extern crate quickcheck;
 extern crate rand;
+extern crate regex;
 
 use std::collections::BTreeMap;
 use std::ops::Add;
@@ -10,6 +11,8 @@ use quickcheck::Arbitrary;
 use quickcheck::Gen;
 use rand::Rng;
 use std::str::FromStr;
+use regex::Regex;
+use std::num::ParseIntError;
 
 pub trait Die {
     type Dist: Distribution;
@@ -91,32 +94,17 @@ impl Arbitrary for SimpleDie {
 }
 
 impl FromStr for SimpleDie {
-    type Err = ();
+    type Err = ParseIntError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let parts: Vec<&str> = s[1..].splitn(2, "+").collect();
+        let re = Regex::new(r"^d(?P<size>\d+)((?P<sign>[+-])(?P<add>\d+))?$").unwrap();
+        let caps = re.captures(s).unwrap();
 
-        let size = {
-            if parts.len() == 1 || parts.len() == 2 {
-                match parts[0].parse() {
-                    Result::Ok(v) => v,
-                    Result::Err(_) => return Result::Err(()),
-                }
-            } else {
-                return Result::Err(())
-            }
-        };
-
-        let add: i64 = {
-            if parts.len() == 2 {
-                match parts[1].parse() {
-                    Result::Ok(v) => v,
-                    Result::Err(_) => return Result::Err(()),
-                }
-            } else {
-                0
-            }
-        };
+        let size: i64 = try!(caps.name("size").unwrap().parse());
+        let mut add: i64 = try!(caps.name("add").unwrap_or("0").parse());
+        if caps.name("sign").unwrap_or("+") == "-" {
+            add = -add;
+        }
 
         Result::Ok(SimpleDie::new(size, add))
     }
@@ -124,7 +112,7 @@ impl FromStr for SimpleDie {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EqualDistribution {
-    pub members: Vec<i64>,
+    members: Vec<i64>,
 }
 
 impl EqualDistribution {
@@ -151,6 +139,7 @@ impl Distribution for EqualDistribution {
 mod tests {
     use super::*;
     use rand::thread_rng;
+    use quickcheck::TestResult;
 
     #[quickcheck]
     fn equal_distr_mean(d: SimpleDie) -> bool {
@@ -186,16 +175,33 @@ mod tests {
     }
 
     #[quickcheck]
-    fn parsing_bare_die(size: i64) -> bool {
+    fn parsing_bare_die(size: i64) -> TestResult {
+        if size < 1 {
+            return TestResult::discard();
+        }
+        let size = size.abs() + 1;
         let formatted = format!("d{}", size);
         let d: SimpleDie = formatted.parse().unwrap();
-        d.size == size && d.add == 0
+        TestResult::from_bool(d.size == size && d.add == 0)
     }
 
     #[quickcheck]
-    fn parsing_bare_die_with_add(size: i64, add: i64) -> bool {
+    fn parsing_bare_die_with_add(size: i64, add: i64) -> TestResult {
+        if size < 1 || add < 1 {
+            return TestResult::discard();
+        }
         let formatted = format!("d{}+{}", size, add);
         let d: SimpleDie = formatted.parse().unwrap();
-        d.size == size && d.add == add
+        TestResult::from_bool(d.size == size && d.add == add)
+    }
+
+    #[quickcheck]
+    fn parsing_bare_die_with_subtract(size: i64, add: i64) -> TestResult {
+        if size < 1 || add > -1 {
+            return TestResult::discard();
+        }
+        let formatted = format!("d{}{}", size, add);
+        let d: SimpleDie = formatted.parse().unwrap();
+        TestResult::from_bool(d.size == size && d.add == add)
     }
 }
